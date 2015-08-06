@@ -1,6 +1,33 @@
 ﻿/*  NEW TABLES
-  
-/*
+  Scripts creation solaSW !
+ 
+drop table inverters
+;
+CREATE TABLE dbo.inverters(
+	serialNo varchar(50) not null primary key,
+
+	-- company
+	company varchar(50) not NULL,
+
+	-- site specific information
+	site varchar(50) NOT NULL,
+	longitude decimal(9, 6) default 0,
+	latitude decimal(9, 6) default 0,
+	city varchar(50) not null,
+	country varchar(50) not null,
+
+	-- Inverter specific information
+	name varchar(50) NOT NULL,
+	power bigint not null,
+	model varchar(50) not null,
+	type tinyint not NULL,
+	nbMeasures int not null,
+	nbStrings int not null,
+	sensorSN varchar(50) null
+);
+
+ 
+/* OLD SCRIPT .....
 CREATE TABLE [dbo].[misc_northHillFarm](
 	[dateMeasure] [dateTime] NOT NULL,
 	[inverter] [varchar](50) NULL,
@@ -79,8 +106,9 @@ CREATE TABLE [dbo].[mAc_northHillFarm](
 	[voltage] [decimal](18, 2) NULL,
 	[power] [decimal](18, 2) NULL,
 	[energyDaily] [decimal](18, 2) NULL,
-	[generated] [decimal](18, 2) NULL,
-	[isolationFlt] [decimal](18, 2) NULL
+	[energyPrevious] [decimal](18, 2) NULL,
+	[isolationFlt] [decimal](18, 2) NULL,
+    generated as energyDaily - energyPrevious,
 ) ON [PRIMARY]
 
 GO
@@ -102,6 +130,18 @@ SELECT
   where stringNo is null or
   (stringNo = 'A' or stringNo = 'B' or stringNo = 'C')
 
+
+update mAc_northHillFarm set energyPrevious =  
+	(	select max(b.energyDaily) from mAc_northHillFarm b
+		where  mAc_northHillFarm.invPhase = b.invPhase
+		  and b.dateMeasure < mAc_northHillFarm.dateMeasure
+		  and datediff(day, mAc_northHillFarm.dateMeasure, b.dateMeasure) <=1
+		  and b.energyDaily <= mAc_northHillFarm.energyDaily
+		  and mAc_northHillFarm.energyDaily - b.EnergyDaily < 10000
+	)
+where 
+	invPhase not like '%Phase%' and
+	energyPrevious is null
 
 
 
@@ -141,7 +181,8 @@ CREATE TABLE [dbo].[inverters](
 	[inverter] [varchar](50) NOT NULL,
 	[invString] varchar(50) not null,
 	stringNo varchar(50) null,
-	[isItWebBox] [tinyint] NULL,
+	[type] [tinyint] NULL,
+    
 PRIMARY KEY CLUSTERED 
 (
 	[invString] ASC, stringNo ASC
@@ -172,6 +213,16 @@ select distinct
 	from [solarPlants].[dbo].[m_northHillFarm]
 	where stringNo = 'C'
 
+ * 
+ * get errors
+select dateMeasure, inverter, evtNo = convert(int, LEFT(evtNo, CHARINDEX('.', evtNo)-1)), evtNoShort = convert(int, LEFT(evtNoShort, CHARINDEX('.', evtNoShort)-1)), evtMsg, evtPrior, health 
+from misc_northHillFarm where 
+	health != 'Ok' or 
+	(evtNo is not null ) or 
+	(evtMsg is not null and evtMsg != 'None') or 
+	(evtNoShort is not null and evtNoShort != '0.00') or 
+	(evtPrior is not null and evtPrior != 'NonePrio')
+ order by dateMeasure DESC
   
  */
 
@@ -281,7 +332,7 @@ namespace loadCsv
 {
     class dbserver
     {
-        String strConnect = "Data Source=.\\SQLExpress; Initial Catalog = solarPlants ; Integrated Security = true ; Connection Timeout=10 ; Min Pool Size=2 ; Max Pool Size=20;";
+        String strConnect = "Data Source=.; Initial Catalog = solarSW ; Integrated Security = true ; Connection Timeout=10 ; Min Pool Size=2 ; Max Pool Size=20;";
         SqlConnection con;
         public dbserver(String siteName)
         {
@@ -301,68 +352,8 @@ namespace loadCsv
 //	[site] [varchar](50) not null,
          void createTables(String siteName)
         {
-            using (SqlCommand cde = new SqlCommand("If not exists (select name from sysobjects where name = 'measures') create table measures(" +
-                "site varchar(50) not null, " +
-                "dateMeasure date not null, timeMeasure time not null, inverter varchar(50), stringNo varchar(50), dc_Current decimal(18, 4), dc_Voltage decimal (18,2), " +
-                "dc_Power decimal (18,2), env_Temp decimal (18,2), env_Insolation decimal (18,2), env_WindSpeed decimal (18,2), out_Current decimal (18,2), out_Frequency decimal (18,2), " +
-                "out_Voltage decimal (18,2), out_ActivePower decimal (18,2), mod_Temp decimal (18,2), time_FeedIn decimal (18,2), time_Operating decimal (18,2),  " +
-                "Out_EnergyDaily decimal (18,2), evt_Description varchar(255), evt_No varchar(255), evt_NoShort  varchar(4096), evt_Msg varchar(255), " +
-                "evt_Prior varchar(255),  isol_Flt decimal (18,2), isol_LeakRis decimal (18,2), gridSwitchCount decimal (18,2), health varchar(255)" +
-                ");", con))
-                cde.ExecuteNonQuery();
 
-            using (SqlCommand cde = new SqlCommand("If not exists (select name from sysobjects where name = 'm_" + siteName + "') create table m_" + siteName + "(" +
-                "dateMeasure date not null, timeMeasure time not null, inverter varchar(50), stringNo varchar(50), dc_Current decimal(18, 4), dc_Voltage decimal (18,2), " +
-                "dc_Power decimal (18,2), env_Temp decimal (18,2), env_Insolation decimal (18,2), env_WindSpeed decimal (18,2), out_Current decimal (18,2), out_Frequency decimal (18,2), " +
-                "out_Voltage decimal (18,2), out_ActivePower decimal (18,2), mod_Temp decimal (18,2), time_FeedIn decimal (18,2), time_Operating decimal (18,2),  " +
-                "Out_EnergyDaily decimal (18,2), evt_Description varchar(255), evt_No varchar(255), evt_NoShort  varchar(4096), evt_Msg varchar(255), " +
-                "evt_Prior varchar(255),  isol_Flt decimal (18,2), isol_LeakRis decimal (18,2), gridSwitchCount decimal (18,2), health varchar(255)" +
-               ");", con))
-                cde.ExecuteNonQuery();
-
-             using (SqlCommand cde = new SqlCommand("If not exists (select name from sysobjects where name = 'FK_" + siteName + "_Inv') " +
-                "alter table m_" + siteName + " add constraint FK_"+siteName + "_Inv foreign key(inverter) references inverters(inverter);", con))
-                cde.ExecuteNonQuery();
-
-             using (SqlCommand cde = new SqlCommand("If not exists (select name from sysobjects where name = 'FK_AllInverter') " +
-                "alter table measures add constraint FK_AllInverter foreign key(inverter) references inverters(inverter);", con))
-                cde.ExecuteNonQuery();
-
-            using (SqlCommand cde = new SqlCommand("If not exists (select name from sysobjects where name = 'dateLine') " +
-                    "create table dateLine (date date not null primary key, day as DAY(date), month as month(date), " +
-                    "year as year(date), yearMonth as cast( year(date) as varchar(5)) + right('0' + convert(varchar(2), month(date)),2), "+
-                    "semester as cast (month(date)/6.0 + 0.9 as int), quarter as cast (month(date)/3.0 + 0.99 as int));", con))
-                cde.ExecuteNonQuery();
-
-            try
-            {
-                using (SqlCommand cde = new SqlCommand("If not exists (select name from sysobjects where name = 'FK_" + siteName + "_DateLine') " +
-                     "alter table measures add constraint FK_" + siteName + "_DateLine foreign key(dateMeasure) references dateLine(date);", con))
-                    cde.ExecuteNonQuery();
-
-                using (SqlCommand cde = new SqlCommand("If not exists (select name from sysobjects where name = 'FK_AllDateLine') " +
-                     "alter table measures add constraint FK_AllDateLine foreign key(dateMeasure) references dateLine(date);", con))
-                    cde.ExecuteNonQuery();
-            }
-             catch
-            { }
-             using (SqlCommand cde = new SqlCommand("If not exists (select name from sysobjects where name = 'hourLine') " +
-                    "create table hourLine(time time not null primary key, hour as cast( cast(time as varchar(2)) as integer), " +
-                    "minute as cast( right(cast(time as varchar(5)), 2) as integer));", con))
-                cde.ExecuteNonQuery();
-             try
-             {
-                 using (SqlCommand cde = new SqlCommand("If not exists (select name from sysobjects where name = 'FK_" + siteName + "_hourLine') " +
-                       "alter table measures add constraint FK_" + siteName + "_hourLine foreign key(dateMeasure) references hourLine(time);", con))
-                     cde.ExecuteNonQuery();
-                 using (SqlCommand cde = new SqlCommand("If not exists (select name from sysobjects where name = 'FK_AllhourLine') " +
-                       "alter table measures add constraint FK_AllhourLine foreign key(dateMeasure) references hourLine(time);", con))
-                     cde.ExecuteNonQuery();
-             }
-             catch
-             { }
-
-        }
+         }
         object getValueOrNull(String strVal)
          {
              try
@@ -375,70 +366,51 @@ namespace loadCsv
                 return (object) DBNull.Value;
             }
          }
-        public void checkDateTimeLine(allMeasures allM)
-        {
-            Dictionary<DateTime, int> dateTL = new Dictionary<DateTime, int>();
-            Dictionary<int, int> timeTL = new Dictionary<int, int>();
-            using (SqlCommand cde = new SqlCommand("select time from hourLine;", con))
-            {
-                SqlDataReader myRdr = cde.ExecuteReader();
-                while (myRdr.Read())
-                {
-                    TimeSpan ts = myRdr.GetTimeSpan(0);
-                    timeTL.Add(100 * ts.Hours + ts.Minutes, 0);
-                }
-                myRdr.Close();
-            }
-            using (SqlCommand cde = new SqlCommand("select date from dateLine;", con))
-            {
-                SqlDataReader myRdr = cde.ExecuteReader();
-                while (myRdr.Read())
-                {
-                    dateTL.Add(myRdr.GetDateTime(0), 0);
-                }
-                myRdr.Close();
-            }
 
-            foreach (oneMeasure oneM in allM)
+        public Dictionary<string, inverter> loadInverters(String siteName)
+        {
+            Dictionary<String, inverter> allInvs = new Dictionary<string, inverter>();
+            inverter oneInv;
+            String serialNo, company, name, model, sensorSN;
+            long power;
+            int type, nbMeasures, nbStrings;
+            invType invTp;
+
+            using(SqlCommand cde = new SqlCommand("select serialNo, company, name, power, model, type, nbMeasures, nbStrings, sensorSN from inverters;", con))
             {
-                for (int i = 0; i < oneM.values.Count; i++)
-                {
-                    DateTime dt = DateTime.Parse(oneM.values[i][0]);
-                    int hm = dt.Hour * 100 + dt.Minute;
-                    if (!timeTL.ContainsKey(hm))
-                    {
-                        using (SqlCommand cde = new SqlCommand("insert into hourLine(time) Values ( '" + dt.Hour +":" + dt.Minute + "');", con))
-                            cde.ExecuteNonQuery();
-                        timeTL.Add(hm, 1);
+                SqlDataReader myRdr = cde.ExecuteReader();
+                while (myRdr.Read()) {
+                    serialNo = myRdr.GetString(0);
+                    company = myRdr.GetString(1);
+                    name = myRdr.GetString(2);
+                    power = myRdr.GetInt64(3);
+                    model = myRdr.GetString(4);
+                    type = myRdr.GetInt32(5);
+                    nbMeasures = myRdr.GetInt32(6);
+                    nbStrings = myRdr.GetInt32(7);
+                    sensorSN = myRdr.GetString(8);
+                    switch(type){
+                        case 1:
+                        invTp = invType.WEBBOX;
+                        break;
+                        case 2:
+                        invTp = invType.SENSOR;
+                        break;
+                        default:
+                        invTp = invType.INVERTER;
+                        break;
                     }
-                    if (!dateTL.ContainsKey(dt.Date))
-                    {
-                        using (SqlCommand cde = new SqlCommand("insert into dateLine(date) Values ( '" + dt.Year + "/" + dt.Month + "/" + dt.Day + "');", con))
-                            cde.ExecuteNonQuery();
-                        dateTL.Add(dt.Date, 1);
-                    }
+
+                    oneInv = new inverter(company, name, model, serialNo, power, invTp, nbMeasures, nbStrings, sensorSN);
+                    allInvs.Add(oneInv.serialNo, oneInv);
                 }
+                myRdr.Close();
             }
+            return allInvs;
         }
-        public void checkInverters(String siteName,allMeasures allM)
+        public void createOneInverter(String siteName)
         {
-            Dictionary<String, String> invInAllM = new Dictionary<string, string>();
-            foreach(oneMeasure oneM in allM)
-            {
-                for (int i = 0; i < oneM.inverter.Count(); i++ )
-                {
-                    if (!invInAllM.ContainsKey(oneM.inverterSN[i]))
-                        invInAllM.Add(oneM.inverterSN[i], oneM.inverterType[i]);
-                }
-            }
-            using(SqlCommand cde = new SqlCommand("select inverter from inverters;", con))
-            {
-                SqlDataReader myRdr = cde.ExecuteReader();
-                while (myRdr.Read())
-                    invInAllM.Remove(myRdr.GetString(0));
-                myRdr.Close();
-            }
-
+/*
             foreach(String key in invInAllM.Keys){
                 if (key == null || key.Length == 0)
                     continue;
@@ -448,8 +420,9 @@ namespace loadCsv
                     "'???', '" + siteName +"', 0, 0, '???', '???', '" +  key + "', " + isItWebBox + ");", con))
                         cde.ExecuteNonQuery();
             }
-        }
+  */      }
 
+        /*
         public void loadData(String [][]measuresFromOneFile, Boolean[] bFlush, String siteName){
 
             Boolean bSomethingToWrite = false;
@@ -542,6 +515,7 @@ namespace loadCsv
             dtT.Columns.Add(inverterCol);
             DataColumn stringNoCol = new DataColumn("stringNo", Type.GetType("System.String"));
             dtT.Columns.Add(stringNoCol);
+
             DataColumn dc_CurrentCol = new DataColumn("dc_Current", Type.GetType("System.Double"));
             dtT.Columns.Add(dc_CurrentCol);
             DataColumn dc_VoltageCol = new DataColumn("dc_Voltage", Type.GetType("System.Double"));
@@ -623,5 +597,6 @@ namespace loadCsv
             dtR["gridSwitchCount"] = getValueOrNull(oneMeasurePerTimeInverterString[26]);
             dtR["health"] = oneMeasurePerTimeInverterString[27];
         }
+         * */
     }
 }
